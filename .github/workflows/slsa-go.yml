@@ -68,16 +68,29 @@ jobs:
 # ────────────────────────────────────────────────────────────────────
 # 2B.  Upload as workflow artefact (manual button runs only)
 # ────────────────────────────────────────────────────────────────────
-  upload-manual-artifact:
-    if: github.event_name == 'workflow_dispatch'
-    needs: slsa-build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Upload binary + provenance
-        uses: actions/upload-artifact@v4
-        with:
-          name: Openhands-LIST-MCP-output
-          path: |
-            Openhands-LIST-MCP*
-            Openhands-LIST-MCP*.intoto.jsonl
+upload-manual-artifact:
+  if: github.event_name == 'workflow_dispatch'
+  needs: slsa-build
+  runs-on: ubuntu-latest
+  steps:
+    # 1️⃣  pull the artefacts that the slsa-build job stored
+    #     the SLSA workflow uses the binary name as artefact name
+    - name: Download binary artefact
+      uses: actions/download-artifact@v4
+      with:
+        name: Openhands-LIST-MCP_linux_amd64        # exactly as it shows up in the UI
+        path: out/
+
+    - name: Download provenance artefact
+      uses: actions/download-artifact@v4
+      with:
+        name: Openhands-LIST-MCP_linux_amd64.intoto.jsonl
+        path: out/
+
+    # 2️⃣  expose them under a single artefact so you can grab one zip
+    - name: Upload combined artefact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Openhands-LIST-MCP-output
+        path: out/
 
