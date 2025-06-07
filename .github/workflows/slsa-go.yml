@@ -1,0 +1,23 @@
+name: SLSA Go releaser
+
+on:
+  release:
+    types: [created]          # fires when you create a GitHub Release
+  workflow_dispatch:          # manual run button
+
+permissions:                  #  least-privilege
+  contents: write             # upload artifacts to the release
+  id-token: write             # OIDC signing for provenance
+  actions: read               # read the workflow itself
+
+jobs:
+  build:
+    uses: slsa-framework/slsa-github-generator/.github/workflows/builder_go_slsa3.yml@v1.4.0
+    permissions:
+      contents: write
+      id-token: write
+      actions: read
+    with:
+      go-version: 1.22        # ✅ bump from 1.17 to the project’s version
+      config-file: .slsa-goreleaser.yml   # path is relative to repo root
+      # nothing else needed for a simple static binary
