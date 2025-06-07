@@ -1,23 +1,39 @@
-name: SLSA Go releaser
+# =======================================================================
+# Build & release Openhands-LIST-MCP under SLSA Level 3 (Go 1.22)
+# =======================================================================
 
+name: SLSA Go releaser   # appears in the Actions tab
+
+# ───────────────────────────────────────────────────────────────────────
+#   👇  EVENT TRIGGERS — at least one is required!
+# ───────────────────────────────────────────────────────────────────────
 on:
-  release:
-    types: [created]          # fires when you create a GitHub Release
-  workflow_dispatch:          # manual run button
+  release:               # fires when you create a GitHub Release
+    types: [created]     # → “Publish release” button or `git push --tags`
+  workflow_dispatch:     # lets you run it manually from the UI
 
-permissions:                  #  least-privilege
-  contents: write             # upload artifacts to the release
-  id-token: write             # OIDC signing for provenance
-  actions: read               # read the workflow itself
+# ───────────────────────────────────────────────────────────────────────
+#   Global minimal permissions (can only be widened in jobs.*)
+# ───────────────────────────────────────────────────────────────────────
+permissions:
+  contents: write        # needed to upload release assets
+  id-token: write        # OIDC signing for the provenance
+  actions: read          # read the workflow file itself
 
 jobs:
   build:
+    # ---------------------------------------------------------------
+    # Use the OpenSSF SLSA builder for Go:
+    # https://github.com/slsa-framework/slsa-github-generator
+    # ---------------------------------------------------------------
     uses: slsa-framework/slsa-github-generator/.github/workflows/builder_go_slsa3.yml@v1.4.0
+
+    # Extra permissions scoped to this job (redundant but explicit)
     permissions:
       contents: write
       id-token: write
       actions: read
+
     with:
-      go-version: 1.22        # ✅ bump from 1.17 to the project’s version
-      config-file: .slsa-goreleaser.yml   # path is relative to repo root
-      # nothing else needed for a simple static binary
+      go-version: 1.22              # ← your project uses Go 1.22
+      config-file: .slsa-goreleaser.yml
