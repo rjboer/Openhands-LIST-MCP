@@ -4,6 +4,7 @@ version: 1
 main: .
 
 # file that will be attached to the GitHub Release
+binary: Openhands-LIST-MCP
 filename: Openhands-LIST-MCP
 
 goos:   linux
