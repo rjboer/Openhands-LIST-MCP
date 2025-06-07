@@ -1,18 +1,29 @@
 # .github/workflows/slsa-go.yml
+# ======================================================================
+# Build & release Openhands-LIST-MCP
+#   · Tag / GitHub-Release  -> full SLSA-signed artefacts on the release
+#   · Manual "Run workflow" -> quick binary uploaded as workflow artefact
+# ======================================================================
+
 name: SLSA Go releaser
 
+# ──────────────────────────────────────────────────────────────────────
 on:
   release:
-    types: [created]        # normal publish -> uploads to GitHub Release
-  workflow_dispatch:        # manual button -> will upload as artifact
+    types: [created]            # push a tag or click "Publish release"
+  workflow_dispatch:            # manual button in the Actions tab
+# ──────────────────────────────────────────────────────────────────────
 
 permissions:
-  contents: write
-  id-token: write
-  actions: read
+  contents: write               # upload to releases
+  id-token: write               # sign provenance
+  actions: read                 # read other workflows
 
 jobs:
-  build:
+# ----------------------------------------------------------------------
+# 1. Official SLSA-signed build (runs in BOTH release & manual modes)
+# ----------------------------------------------------------------------
+  build-slsa:
     uses: slsa-framework/slsa-github-generator/.github/workflows/builder_go_slsa3.yml@v2.1.0
     permissions:
       contents: write
@@ -20,18 +31,35 @@ jobs:
       actions: read
     with:
       go-version: 1.22
-      config-file: .slsa-goreleaser.yml
+      config-file: .slsa-goreleaser.yml   # must live at repo root
 
-    ## ───────────────────────────────────────────────────────────────
-    ## Extra step *inside* the same job
-    ## uploads the built binary as a workflow-run artifact
-    ## when the run was started manually.
-    ## ───────────────────────────────────────────────────────────────
-    post-steps:
-      - name: Upload binary as artifact (manual runs)
-        if: github.event_name == 'workflow_dispatch'
+# ----------------------------------------------------------------------
+# 2. Quick artefact upload (manual runs only)
+# ----------------------------------------------------------------------
+  upload-manual:
+    if: github.event_name == 'workflow_dispatch'   # <- only manual
+    needs: build-slsa
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.22
+          cache: false
+
+      - name: Build static binary
+        env:
+          CGO_ENABLED: 0
+        run: |
+          go env -w CGO_ENABLED=0
+          go build -trimpath -ldflags="-s -w" -o Openhands-LIST-MCP ./      # adjust ./ if main.go lives elsewhere
+
+      - name: Upload artefact
         uses: actions/upload-artifact@v4
         with:
           name: Openhands-LIST-MCP_linux_amd64
-          path: |
-            ./artifacts/Openhands-LIST-MCP_linux_amd64*
+          path: Openhands-LIST-MCP
