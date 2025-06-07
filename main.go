@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 /* --------------------------------------------------------------------- */
@@ -28,14 +29,87 @@ type List struct {
 }
 
 type Store struct {
-	mu    sync.RWMutex
-	Lists map[string]*List
+	mu        sync.RWMutex
+	Lists     map[string]*List
+	delayMu   sync.RWMutex  // guards delay
+	itemDelay time.Duration // throttle between tasks
 }
 
 func NewStore() *Store { return &Store{Lists: make(map[string]*List)} }
 
 /* --------------------------------------------------------------------- */
-/* 2.  Helper: usage text                                                */
+/* 2.  Embedded index.html                                               */
+/* --------------------------------------------------------------------- */
+
+const indexHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review-Board</title>
+<style>
+body{font-family:sans-serif;margin:2rem}
+table{border-collapse:collapse;width:100%;margin-bottom:2rem}
+th,td{border:1px solid #ddd;padding:.4rem;text-align:left}
+tr:hover{background:#f3f3f3}
+.badge{padding:2px 6px;border-radius:4px;color:#fff;font-size:.8rem}
+.open{background:#28a745}.closed{background:#6c757d}
+</style>
+</head>
+<body>
+<h1>Review-Board Lists</h1>
+<table id="lists">
+<thead><tr><th>Name</th><th>Total</th><th>Open</th></tr></thead>
+<tbody></tbody></table>
+
+<h2>Add / Seed List</h2>
+<form id="seedForm">
+<label>List name:
+  <input id="listName" required>
+</label><br><br>
+<label>JSON array of items:<br>
+  <textarea id="jsonBody" rows="10" cols="80"
+   placeholder='[{"Document":"a.md","conflict":"x","new_statement":"y"}]'></textarea>
+</label><br><br>
+<button type="submit">POST /add/{list}</button>
+</form>
+
+<script>
+async function refresh(){
+  const res=await fetch('/meta');
+  const data=await res.json();
+  const tbody=document.querySelector('#lists tbody');
+  tbody.innerHTML='';
+  data.lists.forEach(l=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=
+      '<td>'+l.name+'</td>'+
+      '<td>'+l.count+'</td>'+
+      '<td><span class="badge '+(l.open? "open":"closed")+'">'+l.open+'</span></td>';
+    tbody.appendChild(tr);
+  });
+}
+document.getElementById('seedForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const name=document.getElementById('listName').value.trim();
+  const body=document.getElementById('jsonBody').value.trim()||'[]';
+  try{
+    const res=await fetch('/add/'+encodeURIComponent(name),{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:body
+    });
+    if(!res.ok) throw new Error(await res.text());
+    alert('Success!');
+    document.getElementById('jsonBody').value='';
+    refresh();
+  }catch(err){alert(err);}
+});
+refresh(); setInterval(refresh,5000);
+</script>
+</body></html>`
+
+/* --------------------------------------------------------------------- */
+/* 3.  Usage helper                                                      */
 /* --------------------------------------------------------------------- */
 
 func writeUsage(w http.ResponseWriter) {
@@ -46,16 +120,39 @@ GET  /close/{list}?index=n     → set item.status="closed" (index optional)
 GET  /add/{list}               → create empty list
 POST /add/{list}               → create list and seed with JSON array
 GET  /delete/{list}            → delete list
-GET  /list/{list}              → full list as JSON`
+GET  /list/{list}              → full list as JSON
+GET  /timeout/{seconds}        → set delay before serving an item
+GET  /meta                     → JSON summary for index page
+/ or /index.html               → minimal web UI`
 	http.Error(w, help, http.StatusBadRequest)
 }
 
 /* --------------------------------------------------------------------- */
-/* 3.  HTTP handler                                                      */
+/* 4.  HTTP router                                                       */
 /* --------------------------------------------------------------------- */
 
 func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(r.URL.Path, "/")
+
+	// 4.1 root or /index.html → embedded UI
+	if path == "" || path == "index.html" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(indexHTML))
+		return
+	}
+
+	// 4.2 special single-segment endpoints
+	if path == "meta" {
+		s.handleMeta(w, r)
+		return
+	}
+	if strings.HasPrefix(path, "timeout/") {
+		sec := strings.TrimPrefix(path, "timeout/")
+		s.handleTimeout(w, r, sec)
+		return
+	}
+
+	// 4.3 two-segment REST actions
 	parts := strings.SplitN(path, "/", 2)
 	if len(parts) != 2 {
 		writeUsage(w)
@@ -75,16 +172,53 @@ func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "close":
 		s.handleClose(w, r, listName)
 	default:
-
-		case "timeout":
-			s.handleTimeout(w, r, listName)
-
-
-		case "timeout":
-			s.handleTimeout(w, r, listName)
-
 		writeUsage(w)
 	}
+}
+
+/* -------------------- /meta  (summary for UI) ------------------------ */
+
+func (s *Store) handleMeta(w http.ResponseWriter, r *http.Request) {
+	type entry struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+		Open  int    `json:"open"`
+	}
+	out := struct {
+		Lists []entry `json:"lists"`
+	}{}
+
+	s.mu.RLock()
+	for name, lst := range s.Lists {
+		open := 0
+		for _, it := range lst.Items {
+			if it.Status == "open" {
+				open++
+			}
+		}
+		out.Lists = append(out.Lists, entry{name, len(lst.Items), open})
+	}
+	s.mu.RUnlock()
+
+	json.NewEncoder(w).Encode(out)
+}
+
+/* ---------------------- /timeout/{seconds} --------------------------- */
+
+func (s *Store) handleTimeout(w http.ResponseWriter, r *http.Request, secStr string) {
+	if r.Method != http.MethodGet {
+		writeUsage(w)
+		return
+	}
+	secs, err := strconv.Atoi(secStr)
+	if err != nil || secs < 0 || secs > 600 {
+		http.Error(w, "invalid timeout (0-600s)", http.StatusBadRequest)
+		return
+	}
+	s.delayMu.Lock()
+	s.itemDelay = time.Duration(secs) * time.Second
+	s.delayMu.Unlock()
+	fmt.Fprintf(w, `{"message":"delay set to %d seconds"}`, secs)
 }
 
 /* -------------------------- /add/{list} ------------------------------ */
@@ -110,18 +244,18 @@ func (s *Store) handleAdd(w http.ResponseWriter, r *http.Request, name string) {
 		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if _, exists := s.Lists[name]; exists {
-			http.Error(w, "list already exists", http.StatusConflict)
-			return
+		if _, exists := s.Lists[name]; !exists {
+			s.Lists[name] = &List{Name: name}
 		}
-		// ensure sequential indices
+		// append while fixing indices & default status
+		base := len(s.Lists[name].Items)
 		for i := range items {
-			items[i].Index = i + 1
+			items[i].Index = base + i + 1
 			if items[i].Status == "" {
 				items[i].Status = "open"
 			}
+			s.Lists[name].Items = append(s.Lists[name].Items, items[i])
 		}
-		s.Lists[name] = &List{Name: name, Items: items}
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(items)
 
@@ -171,6 +305,12 @@ func (s *Store) handleOpen(w http.ResponseWriter, r *http.Request, name string) 
 		writeUsage(w)
 		return
 	}
+	// throttle **before** doing work to release locks quickly
+	s.delayMu.RLock()
+	delay := s.itemDelay
+	s.delayMu.RUnlock()
+	time.Sleep(delay)
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	list, ok := s.Lists[name]
@@ -179,16 +319,6 @@ func (s *Store) handleOpen(w http.ResponseWriter, r *http.Request, name string) 
 		return
 	}
 	for _, it := range list.Items {
-
-
-// handleTimeout handles the /timeout/{list} endpoint.
-func (s *Store) handleTimeout(w http.ResponseWriter, r *http.Request, name string) {
-	// TODO: Implement timeout functionality
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{"message":"timeout not implemented"}`)
-}
-
-
 		if it.Status == "open" {
 			json.NewEncoder(w).Encode(it)
 			return
@@ -204,6 +334,12 @@ func (s *Store) handleClose(w http.ResponseWriter, r *http.Request, name string)
 		writeUsage(w)
 		return
 	}
+	// throttle
+	s.delayMu.RLock()
+	delay := s.itemDelay
+	s.delayMu.RUnlock()
+	time.Sleep(delay)
+
 	q := r.URL.Query().Get("index")
 
 	s.mu.Lock()
@@ -214,12 +350,9 @@ func (s *Store) handleClose(w http.ResponseWriter, r *http.Request, name string)
 		return
 	}
 
-	// helper to encode and reply
-	reply := func(it *Item) {
-		json.NewEncoder(w).Encode(it)
-	}
+	reply := func(it *Item) { json.NewEncoder(w).Encode(it) }
 
-	// close by explicit index
+	// explicit index
 	if q != "" {
 		idx, err := strconv.Atoi(q)
 		if err != nil || idx <= 0 || idx > len(list.Items) {
@@ -231,7 +364,7 @@ func (s *Store) handleClose(w http.ResponseWriter, r *http.Request, name string)
 		return
 	}
 
-	// otherwise close first open
+	// first open
 	for i := range list.Items {
 		if list.Items[i].Status == "open" {
 			list.Items[i].Status = "closed"
@@ -243,22 +376,15 @@ func (s *Store) handleClose(w http.ResponseWriter, r *http.Request, name string)
 }
 
 /* --------------------------------------------------------------------- */
-/* 4.  main                                                              */
+/* 5.  main                                                              */
 /* --------------------------------------------------------------------- */
 
 func main() {
 	store := NewStore()
 
 	addr := ":8080"
-	fmt.Printf("🔗  Listening on http://localhost%s  (try /add/todo)\n", addr)
+	fmt.Printf("🔗  Listening on http://localhost%s  (index page at /)\n", addr)
 	if err := http.ListenAndServe(addr, store); err != nil {
 		log.Fatal(err)
 	}
 }
-
-// SetTimeout sets the timeout between serving list items.
-func (s *Store) SetTimeout(w http.ResponseWriter, r *http.Request, timeout int) {
-	// TODO: Implement timeout functionality
-	fmt.Fprintf(w, `{"message":"timeout set to %d seconds"}`, timeout)
-}
-
