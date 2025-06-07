@@ -1,23 +1,17 @@
-version: 1                # required
+version: 1
 
-goos:   linux                # ← scalar, not [linux]
-goarch: amd64                # ← scalar, not [amd64]
+# path to main.go (adjust if it lives in cmd/review-board)
+main: .
 
-targets:
-  - .                        # path of the main package (root).  change if main is in cmd/…
-  
+# file that will be attached to the GitHub Release
 filename: Openhands-LIST-MCP
 
-build-flags:
+goos:   linux
+goarch: amd64
+
+flags:
   - -trimpath
-  - -ldflags=-s -w
-
-artifacts:
-  - type: binary
-    id: review-board         # label in the provenance file
-    path: .                  # same path as in targets
-    goos:   linux
-    goarch: amd64
-
-provenance:
-  enabled: true
+ldflags:
+  - -s -w        # strip symbols → smaller binary
+env:
+  - CGO_ENABLED=0
