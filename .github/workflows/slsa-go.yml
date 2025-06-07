@@ -2,38 +2,32 @@
 # Build & release Openhands-LIST-MCP under SLSA Level 3 (Go 1.22)
 # =======================================================================
 
-name: SLSA Go releaser   # appears in the Actions tab
+name: SLSA Go releaser
 
-# ───────────────────────────────────────────────────────────────────────
-#   👇  EVENT TRIGGERS — at least one is required!
-# ───────────────────────────────────────────────────────────────────────
 on:
-  release:               # fires when you create a GitHub Release
-    types: [created]     # → “Publish release” button or `git push --tags`
-  workflow_dispatch:     # lets you run it manually from the UI
+  release:
+    types: [created]          # fires when you publish a GitHub Release
+  workflow_dispatch:          # manual run button
 
-# ───────────────────────────────────────────────────────────────────────
-#   Global minimal permissions (can only be widened in jobs.*)
-# ───────────────────────────────────────────────────────────────────────
+# global least-privilege
 permissions:
-  contents: write        # needed to upload release assets
-  id-token: write        # OIDC signing for the provenance
-  actions: read          # read the workflow file itself
+  contents: write             # upload release assets
+  id-token: write             # sign the provenance
+  actions: read               # read this workflow itself
 
 jobs:
   build:
     # ---------------------------------------------------------------
-    # Use the OpenSSF SLSA builder for Go:
-    # https://github.com/slsa-framework/slsa-github-generator
+    # Reusable workflow maintained by the SLSA Framework team
     # ---------------------------------------------------------------
     uses: slsa-framework/slsa-github-generator/.github/workflows/builder_go_slsa3.yml@v2.1.0
 
-    # Extra permissions scoped to this job (redundant but explicit)
+    # job-specific permission overrides (optional but explicit)
     permissions:
       contents: write
       id-token: write
       actions: read
 
     with:
-      go-version: 1.22              # ← your project uses Go 1.22
+      go-version: 1.22                 # project’s Go version
       config-file: .slsa-goreleaser.yml
