@@ -1,4 +1,5 @@
 
+
 # Review-Board HTTP Service - Function Plan
 
 ## 0. Application Initialization
@@ -39,4 +40,11 @@
     *   Description: Returns the full list as JSON.
     *   Inputs: `list` (string, path parameter).
     *   Outputs: JSON (list), `error`.
+
+## 2. Configuration
+
+7.  **Function 7: `SetTimeout`**
+    *   Description: Sets the timeout between serving list items.
+    *   Inputs: `timeout` (integer, seconds).
+    *   Outputs: None, `error`.
 
