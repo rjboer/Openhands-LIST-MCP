@@ -1,4 +1,4 @@
-version: 0.2                 # required
+version: 1                # required
 
 goos:   linux                # ← scalar, not [linux]
 goarch: amd64                # ← scalar, not [amd64]
