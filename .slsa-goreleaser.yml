@@ -1,23 +1,21 @@
-# SLSA-Goreleaser configuration for Openhands-LIST-MCP
-# Docs: https://github.com/slsa-framework/slsa-github-generator/blob/main/internal/builders/go/README.md
-version: 0.2
+version: 0.2                 # required
 
-goos:   [linux]
-goarch: [amd64]
+goos:   linux                # ← scalar, not [linux]
+goarch: amd64                # ← scalar, not [amd64]
+
 targets:
-  - ./cmd/review-board    # <-- adjust if your main package lives elsewhere
+  - .                        # path of the main package (root).  change if main is in cmd/…
 
 build-flags:
   - -trimpath
-  - -ldflags="-s -w"
+  - -ldflags=-s -w
 
 artifacts:
   - type: binary
-    id: review-board
+    id: review-board         # label in the provenance file
+    path: .                  # same path as in targets
     goos:   linux
     goarch: amd64
-    path:   ./cmd/review-board      # same as above
-    # output name is inferred (review-board_linux_amd64)
 
 provenance:
   enabled: true
