@@ -75,6 +75,14 @@ func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "close":
 		s.handleClose(w, r, listName)
 	default:
+
+		case "timeout":
+			s.handleTimeout(w, r, listName)
+
+
+		case "timeout":
+			s.handleTimeout(w, r, listName)
+
 		writeUsage(w)
 	}
 }
@@ -171,6 +179,16 @@ func (s *Store) handleOpen(w http.ResponseWriter, r *http.Request, name string) 
 		return
 	}
 	for _, it := range list.Items {
+
+
+// handleTimeout handles the /timeout/{list} endpoint.
+func (s *Store) handleTimeout(w http.ResponseWriter, r *http.Request, name string) {
+	// TODO: Implement timeout functionality
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, `{"message":"timeout not implemented"}`)
+}
+
+
 		if it.Status == "open" {
 			json.NewEncoder(w).Encode(it)
 			return
@@ -237,3 +255,10 @@ func main() {
 		log.Fatal(err)
 	}
 }
+
+// SetTimeout sets the timeout between serving list items.
+func (s *Store) SetTimeout(w http.ResponseWriter, r *http.Request, timeout int) {
+	// TODO: Implement timeout functionality
+	fmt.Fprintf(w, `{"message":"timeout set to %d seconds"}`, timeout)
+}
+
