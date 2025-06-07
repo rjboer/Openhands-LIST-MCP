@@ -1,10 +1,4 @@
 # .github/workflows/slsa-go.yml
-# ======================================================================
-# Build & release Openhands-LIST-MCP
-#   •  Tag / “Publish Release”  → SLSA-signed binary + provenance uploaded to the Release
-#   •  Manual “Run workflow”    → same files uploaded as workflow artefacts
-# ======================================================================
-
 name: SLSA Go releaser
 
 on:
@@ -13,14 +7,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write        # create / update releases
-  id-token: write        # SLSA provenance signing
+  contents: write
+  id-token: write
   actions: read
 
 jobs:
-# ────────────────────────────────────────────────────────────────────
-# 1.  SLSA-signed build (runs for both triggers)
-# ────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# 1. SLSA-signed build (both triggers)
+# ─────────────────────────────────────────────────────────────
   slsa-build:
     uses: slsa-framework/slsa-github-generator/.github/workflows/builder_go_slsa3.yml@v2.1.0
     permissions:
@@ -29,68 +23,63 @@ jobs:
       actions: read
     with:
       go-version: 1.22
-      config-file: .slsa-goreleaser.yml           # must be at repo root
+      config-file: .slsa-goreleaser.yml  # repo-root
 
-# ────────────────────────────────────────────────────────────────────
-# 2A.  Upload to Release  (only when event == release)
-# ────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# 2A. Attach files to the *Release* (release event only)
+# ─────────────────────────────────────────────────────────────
   upload-release-assets:
     if: github.event_name == 'release'
     needs: slsa-build
     runs-on: ubuntu-latest
     steps:
-      - name: Download SLSA artefacts produced by previous job
-        # Builder places files under ./artifacts relative to root of repository in the runner’s workspace
-        run: |
-          ls -R
-          echo "Nothing to download: artefacts are already in workspace"
+      # pull artefacts from previous job
+      - uses: actions/download-artifact@v4
+        with:
+          name: Openhands-LIST-MCP_linux_amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: Openhands-LIST-MCP_linux_amd64.intoto.jsonl
 
-      - name: Attach binary
+      - name: Upload binary
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: artifacts/Openhands-LIST-MCP_linux_amd64
+          asset_path: Openhands-LIST-MCP_linux_amd64
           asset_name: Openhands-LIST-MCP_linux_amd64
           asset_content_type: application/octet-stream
 
-      - name: Attach provenance
+      - name: Upload provenance
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: artifacts/Openhands-LIST-MCP_linux_amd64.intoto.jsonl
+          asset_path: Openhands-LIST-MCP_linux_amd64.intoto.jsonl
           asset_name: Openhands-LIST-MCP_linux_amd64.intoto.jsonl
           asset_content_type: application/json
 
-# ────────────────────────────────────────────────────────────────────
-# 2B.  Upload as workflow artefact (manual button runs only)
-# ────────────────────────────────────────────────────────────────────
-upload-manual-artifact:
-  if: github.event_name == 'workflow_dispatch'
-  needs: slsa-build
-  runs-on: ubuntu-latest
-  steps:
-    # 1️⃣  pull the artefacts that the slsa-build job stored
-    #     the SLSA workflow uses the binary name as artefact name
-    - name: Download binary artefact
-      uses: actions/download-artifact@v4
-      with:
-        name: Openhands-LIST-MCP_linux_amd64        # exactly as it shows up in the UI
-        path: out/
+# ─────────────────────────────────────────────────────────────
+# 2B. Upload artefacts for *manual* runs
+# ─────────────────────────────────────────────────────────────
+  upload-manual-artifact:
+    if: github.event_name == 'workflow_dispatch'
+    needs: slsa-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Openhands-LIST-MCP_linux_amd64
+          path: out/
+      - uses: actions/download-artifact@v4
+        with:
+          name: Openhands-LIST-MCP_linux_amd64.intoto.jsonl
+          path: out/
 
-    - name: Download provenance artefact
-      uses: actions/download-artifact@v4
-      with:
-        name: Openhands-LIST-MCP_linux_amd64.intoto.jsonl
-        path: out/
-
-    # 2️⃣  expose them under a single artefact so you can grab one zip
-    - name: Upload combined artefact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Openhands-LIST-MCP-output
-        path: out/
-
+      - name: Upload combined artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Openhands-LIST-MCP-output
+          path: out/
