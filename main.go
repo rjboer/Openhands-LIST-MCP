@@ -31,7 +31,7 @@ type List struct {
 type Store struct {
 	mu        sync.RWMutex
 	Lists     map[string]*List
-	delayMu   sync.RWMutex  // guards delay
+	delayMu   sync.RWMutex
 	itemDelay time.Duration // throttle between tasks
 }
 
@@ -53,20 +53,49 @@ th,td{border:1px solid #ddd;padding:.4rem;text-align:left}
 tr:hover{background:#f3f3f3}
 .badge{padding:2px 6px;border-radius:4px;color:#fff;font-size:.8rem}
 .open{background:#28a745}.closed{background:#6c757d}
+form{margin-top:1rem}
 </style>
 </head>
 <body>
-<h1>Review-Board Lists</h1>
+
+
+<h1>OpenHands MCP List Tool</h1>
+
+<!-- Route cheat-sheet -->
+<table class="routes">
+<thead><tr><th>Verb & Path</th><th>Description</th></tr></thead>
+<tbody>
+<tr><td><code>GET /open/{list}</code></td>   <td>Return first open item with its index</td></tr>
+<tr><td><code>GET /close/{list}?index=n</code></td><td>Close item (<code>index</code> optional)</td></tr>
+<tr><td><code>GET /add/{list}</code></td>    <td>Create empty list</td></tr>
+<tr><td><code>POST /add/{list}</code></td>   <td>Create list, seed with JSON array</td></tr>
+<tr><td><code>GET /delete/{list}</code></td> <td>Delete list</td></tr>
+<tr><td><code>GET /list/{list}</code></td>   <td>Return full list (JSON)</td></tr>
+<tr><td><code>GET /timeout/{seconds}</code></td><td>Set throttle delay (0-600 s)</td></tr>
+<tr><td><code>GET /meta</code></td>          <td>Summary for index page</td></tr>
+<tr><td><code>/ or /index.html</code></td>   <td>This web UI</td></tr>
+</tbody>
+</table>
+
 <table id="lists">
 <thead><tr><th>Name</th><th>Total</th><th>Open</th></tr></thead>
 <tbody></tbody></table>
 
+<h2>Throttle Open / Close</h2>
+<form id="delayForm">
+<label>Delay&nbsp;(seconds):
+  <input id="delaySeconds" type="number" min="0" max="600" value="0" required>
+</label>
+<button type="submit">Set&nbsp;delay</button>
+<span id="currentDelay" style="margin-left:1rem;color:#555"></span>
+</form>
+
 <h2>Add / Seed List</h2>
 <form id="seedForm">
-<label>List name:
+<label>List&nbsp;name:
   <input id="listName" required>
 </label><br><br>
-<label>JSON array of items:<br>
+<label>JSON&nbsp;array&nbsp;of&nbsp;items:<br>
   <textarea id="jsonBody" rows="10" cols="80"
    placeholder='[{"Document":"a.md","conflict":"x","new_statement":"y"}]'></textarea>
 </label><br><br>
@@ -77,6 +106,8 @@ tr:hover{background:#f3f3f3}
 async function refresh(){
   const res=await fetch('/meta');
   const data=await res.json();
+
+  // update list table
   const tbody=document.querySelector('#lists tbody');
   tbody.innerHTML='';
   data.lists.forEach(l=>{
@@ -87,7 +118,22 @@ async function refresh(){
       '<td><span class="badge '+(l.open? "open":"closed")+'">'+l.open+'</span></td>';
     tbody.appendChild(tr);
   });
+
+  // update delay display
+  document.getElementById('currentDelay').textContent='current: '+data.delay+' s';
+  document.getElementById('delaySeconds').value=data.delay;
 }
+
+document.getElementById('delayForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const secs=document.getElementById('delaySeconds').value;
+  try{
+    const res=await fetch('/timeout/'+secs);
+    if(!res.ok) throw new Error(await res.text());
+    refresh();
+  }catch(err){alert(err);}
+});
+
 document.getElementById('seedForm').addEventListener('submit',async e=>{
   e.preventDefault();
   const name=document.getElementById('listName').value.trim();
@@ -104,6 +150,7 @@ document.getElementById('seedForm').addEventListener('submit',async e=>{
     refresh();
   }catch(err){alert(err);}
 });
+
 refresh(); setInterval(refresh,5000);
 </script>
 </body></html>`
@@ -113,17 +160,17 @@ refresh(); setInterval(refresh,5000);
 /* --------------------------------------------------------------------- */
 
 func writeUsage(w http.ResponseWriter) {
-	const help = `Valid endpoints (all JSON replies):
+	const help = `Valid endpoints (all JSON):
 
 GET  /open/{list}              → first open item with its index
-GET  /close/{list}?index=n     → set item.status="closed" (index optional)
+GET  /close/{list}?index=n     → close item (index optional)
 GET  /add/{list}               → create empty list
-POST /add/{list}               → create list and seed with JSON array
+POST /add/{list}               → create list, seed JSON array
 GET  /delete/{list}            → delete list
-GET  /list/{list}              → full list as JSON
-GET  /timeout/{seconds}        → set delay before serving an item
-GET  /meta                     → JSON summary for index page
-/ or /index.html               → minimal web UI`
+GET  /list/{list}              → full list JSON
+GET  /timeout/{seconds}        → set throttle delay (0-600 s)
+GET  /meta                     → summary for index page
+/ or /index.html               → web UI`
 	http.Error(w, help, http.StatusBadRequest)
 }
 
@@ -134,51 +181,50 @@ GET  /meta                     → JSON summary for index page
 func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(r.URL.Path, "/")
 
-	// 4.1 root or /index.html → embedded UI
+	// 4.1  UI
 	if path == "" || path == "index.html" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(indexHTML))
 		return
 	}
 
-	// 4.2 special single-segment endpoints
-	if path == "meta" {
-		s.handleMeta(w, r)
+	// 4.2  helpers
+	switch {
+	case path == "meta":
+		s.handleMeta(w)
 		return
-	}
-	if strings.HasPrefix(path, "timeout/") {
-		sec := strings.TrimPrefix(path, "timeout/")
-		s.handleTimeout(w, r, sec)
+	case strings.HasPrefix(path, "timeout/"):
+		s.handleTimeout(w, strings.TrimPrefix(path, "timeout/"))
 		return
 	}
 
-	// 4.3 two-segment REST actions
+	// 4.3  two-segment REST
 	parts := strings.SplitN(path, "/", 2)
 	if len(parts) != 2 {
 		writeUsage(w)
 		return
 	}
-	action, listName := parts[0], parts[1]
+	action, list := parts[0], parts[1]
 
 	switch action {
 	case "add":
-		s.handleAdd(w, r, listName)
+		s.handleAdd(w, r, list)
 	case "delete":
-		s.handleDelete(w, r, listName)
+		s.handleDelete(w, r, list)
 	case "list":
-		s.handleList(w, r, listName)
+		s.handleList(w, r, list)
 	case "open":
-		s.handleOpen(w, r, listName)
+		s.handleOpen(w, r, list)
 	case "close":
-		s.handleClose(w, r, listName)
+		s.handleClose(w, r, list)
 	default:
 		writeUsage(w)
 	}
 }
 
-/* -------------------- /meta  (summary for UI) ------------------------ */
+/* -------------------- /meta  (summary + delay) ----------------------- */
 
-func (s *Store) handleMeta(w http.ResponseWriter, r *http.Request) {
+func (s *Store) handleMeta(w http.ResponseWriter) {
 	type entry struct {
 		Name  string `json:"name"`
 		Count int    `json:"count"`
@@ -186,6 +232,7 @@ func (s *Store) handleMeta(w http.ResponseWriter, r *http.Request) {
 	}
 	out := struct {
 		Lists []entry `json:"lists"`
+		Delay int     `json:"delay"`
 	}{}
 
 	s.mu.RLock()
@@ -200,25 +247,27 @@ func (s *Store) handleMeta(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.RUnlock()
 
+	s.delayMu.RLock()
+	out.Delay = int(s.itemDelay.Seconds())
+	s.delayMu.RUnlock()
+
 	json.NewEncoder(w).Encode(out)
 }
 
 /* ---------------------- /timeout/{seconds} --------------------------- */
 
-func (s *Store) handleTimeout(w http.ResponseWriter, r *http.Request, secStr string) {
-	if r.Method != http.MethodGet {
-		writeUsage(w)
-		return
-	}
+func (s *Store) handleTimeout(w http.ResponseWriter, secStr string) {
 	secs, err := strconv.Atoi(secStr)
 	if err != nil || secs < 0 || secs > 600 {
-		http.Error(w, "invalid timeout (0-600s)", http.StatusBadRequest)
+		http.Error(w, "invalid timeout (0-600)", http.StatusBadRequest)
 		return
 	}
 	s.delayMu.Lock()
 	s.itemDelay = time.Duration(secs) * time.Second
 	s.delayMu.Unlock()
-	fmt.Fprintf(w, `{"message":"delay set to %d seconds"}`, secs)
+	fmt.Fprintf(w, `{"message":"delay set to %d s"}`, secs)
+	//this works
+	fmt.Println("delay set at: ", secs)
 }
 
 /* -------------------------- /add/{list} ------------------------------ */
@@ -234,7 +283,7 @@ func (s *Store) handleAdd(w http.ResponseWriter, r *http.Request, name string) {
 		}
 		s.Lists[name] = &List{Name: name}
 		w.WriteHeader(http.StatusCreated)
-		fmt.Fprintf(w, `{"message":"list %q created empty"}`, name)
+		fmt.Fprintf(w, `{"message":"list %q created"}`, name)
 
 	case http.MethodPost:
 		var items []Item
@@ -242,12 +291,11 @@ func (s *Store) handleAdd(w http.ResponseWriter, r *http.Request, name string) {
 			http.Error(w, "invalid JSON body", http.StatusBadRequest)
 			return
 		}
+
 		s.mu.Lock()
-		defer s.mu.Unlock()
 		if _, exists := s.Lists[name]; !exists {
 			s.Lists[name] = &List{Name: name}
 		}
-		// append while fixing indices & default status
 		base := len(s.Lists[name].Items)
 		for i := range items {
 			items[i].Index = base + i + 1
@@ -256,6 +304,8 @@ func (s *Store) handleAdd(w http.ResponseWriter, r *http.Request, name string) {
 			}
 			s.Lists[name].Items = append(s.Lists[name].Items, items[i])
 		}
+		s.mu.Unlock()
+
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(items)
 
@@ -289,8 +339,8 @@ func (s *Store) handleList(w http.ResponseWriter, r *http.Request, name string) 
 		return
 	}
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	list, ok := s.Lists[name]
+	s.mu.RUnlock()
 	if !ok {
 		http.Error(w, "list not found", http.StatusNotFound)
 		return
@@ -305,15 +355,13 @@ func (s *Store) handleOpen(w http.ResponseWriter, r *http.Request, name string) 
 		writeUsage(w)
 		return
 	}
-	// throttle **before** doing work to release locks quickly
 	s.delayMu.RLock()
-	delay := s.itemDelay
+	time.Sleep(s.itemDelay)
 	s.delayMu.RUnlock()
-	time.Sleep(delay)
 
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	list, ok := s.Lists[name]
+	s.mu.RUnlock()
 	if !ok {
 		http.Error(w, "list not found", http.StatusNotFound)
 		return
@@ -334,11 +382,9 @@ func (s *Store) handleClose(w http.ResponseWriter, r *http.Request, name string)
 		writeUsage(w)
 		return
 	}
-	// throttle
 	s.delayMu.RLock()
-	delay := s.itemDelay
+	time.Sleep(s.itemDelay)
 	s.delayMu.RUnlock()
-	time.Sleep(delay)
 
 	q := r.URL.Query().Get("index")
 
@@ -352,8 +398,7 @@ func (s *Store) handleClose(w http.ResponseWriter, r *http.Request, name string)
 
 	reply := func(it *Item) { json.NewEncoder(w).Encode(it) }
 
-	// explicit index
-	if q != "" {
+	if q != "" { // explicit index
 		idx, err := strconv.Atoi(q)
 		if err != nil || idx <= 0 || idx > len(list.Items) {
 			http.Error(w, "invalid index", http.StatusBadRequest)
@@ -364,7 +409,6 @@ func (s *Store) handleClose(w http.ResponseWriter, r *http.Request, name string)
 		return
 	}
 
-	// first open
 	for i := range list.Items {
 		if list.Items[i].Status == "open" {
 			list.Items[i].Status = "closed"
@@ -381,9 +425,8 @@ func (s *Store) handleClose(w http.ResponseWriter, r *http.Request, name string)
 
 func main() {
 	store := NewStore()
-
 	addr := ":8080"
-	fmt.Printf("🔗  Listening on http://localhost%s  (index page at /)\n", addr)
+	fmt.Printf("🔗  Listening at http://localhost%s  – UI on /\n", addr)
 	if err := http.ListenAndServe(addr, store); err != nil {
 		log.Fatal(err)
 	}

@@ -1,0 +1,20 @@
+version: "3.9"
+
+services:
+  openhands-list-mcp:
+    # (A) — build the image from the Git repo every time
+    build: https://github.com/rjboer/Openhands-LIST-MCP.git#main
+    # If you later push a pre-built image to a registry, comment the
+    # `build:` line above and uncomment the next one:
+    # image: ghcr.io/rjboer/openhands-list-mcp:latest
+
+    container_name: openhands-list-mcp
+    environment:
+      - PORT=8080          # the Go binary honours this var
+    ports:
+      - "8080:8080"        # hostPort:containerPort
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/meta"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
