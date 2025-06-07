@@ -26,7 +26,7 @@ jobs:
     # Use the OpenSSF SLSA builder for Go:
     # https://github.com/slsa-framework/slsa-github-generator
     # ---------------------------------------------------------------
-    uses: slsa-framework/slsa-github-generator/.github/workflows/builder_go_slsa3.yml@v1.4.0
+   uses: slsa-framework/slsa-github-generator/.github/workflows/builder_go_slsa3.yml@v2.1.0
 
     # Extra permissions scoped to this job (redundant but explicit)
     permissions:
