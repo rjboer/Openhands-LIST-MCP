@@ -1,4 +1,5 @@
-# Review-Board HTTP Service
+# OpenHands MCP List Tool
+## or coloqually Review-Board HTTP Service
 
 A tiny Go micro-service that stores review items in memory and exposes a handful
 of REST-style endpoints.  
