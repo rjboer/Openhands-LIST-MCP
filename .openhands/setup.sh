@@ -9,6 +9,13 @@ mkdir -p /workspace/.openhands
 cp /workspace/cto-evaluation-tool/.openhands/setup.sh /workspace/.openhands/
 touch /workspace/.openhands/pre-commit.sh
 chmod +x /workspace/.openhands/pre-commit.sh
+
+
+# add .openhands_instructions
+echo "Evaluate this Go project for compliance with the requirements in cto_tool_requirements.md." >  /workspace/.openhands_instructions
+cd /workspace/Openhands-LIST-MCP
+
+
 # Install GitHub CLI
 sudo apt update && sudo apt install -y gh curl tar
 
@@ -29,9 +36,8 @@ sudo apt update && sudo apt install -y gh curl tar
 
 # Ensure Go workspace directories exist
  mkdir -p "$GOPATH"/{bin,pkg,src}
-add .openhands_instructions
-echo "Evaluate this Go project for compliance with the requirements in cto_tool_requirements.md." >  /workspace/.openhands_instructions
-cd /workspace/Openhands-LIST-MCP
+
+
 touch /workspace/.openhands/setup.sh
 
 # Print confirmation
