@@ -75,14 +75,6 @@ func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "close":
 		s.handleClose(w, r, listName)
 	default:
-
-		case "timeout":
-			s.handleTimeout(w, r, listName)
-
-
-		case "timeout":
-			s.handleTimeout(w, r, listName)
-
 		writeUsage(w)
 	}
 }
