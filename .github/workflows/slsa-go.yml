@@ -73,10 +73,11 @@ jobs:
     needs: slsa-build
     runs-on: ubuntu-latest
     steps:
-      - name: Upload binary + provenance as artefacts
+      - name: Upload binary + provenance
         uses: actions/upload-artifact@v4
         with:
           name: Openhands-LIST-MCP-output
           path: |
-            artifacts/Openhands-LIST-MCP_linux_amd64
-            artifacts/Openhands-LIST-MCP_linux_amd64.intoto.jsonl
+            Openhands-LIST-MCP*
+            Openhands-LIST-MCP*.intoto.jsonl
+
