@@ -5,7 +5,7 @@ goarch: amd64                # ← scalar, not [amd64]
 
 targets:
   - .                        # path of the main package (root).  change if main is in cmd/…
-
+filename: Openhands-LIST-MCP
 build-flags:
   - -trimpath
   - -ldflags=-s -w
