@@ -26,43 +26,40 @@ jobs:
       config-file: .slsa-goreleaser.yml  # repo-root
 
 # ─────────────────────────────────────────────────────────────
-# 2A. Attach files to the *Release* (release event only)
+# 2A. Attach to Release
 # ─────────────────────────────────────────────────────────────
   upload-release-assets:
     if: github.event_name == 'release'
     needs: slsa-build
     runs-on: ubuntu-latest
     steps:
-      # pull artefacts from previous job
       - uses: actions/download-artifact@v4
         with:
-          name: Openhands-LIST-MCP_linux_amd64
+          name: Openhands-LIST-MCP          # ← exact artefact name
       - uses: actions/download-artifact@v4
         with:
-          name: Openhands-LIST-MCP_linux_amd64.intoto.jsonl
+          name: Openhands-LIST-MCP.intoto.jsonl
 
       - name: Upload binary
         uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: Openhands-LIST-MCP_linux_amd64
+          asset_path: Openhands-LIST-MCP
           asset_name: Openhands-LIST-MCP_linux_amd64
           asset_content_type: application/octet-stream
 
       - name: Upload provenance
         uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: Openhands-LIST-MCP_linux_amd64.intoto.jsonl
+          asset_path: Openhands-LIST-MCP.intoto.jsonl
           asset_name: Openhands-LIST-MCP_linux_amd64.intoto.jsonl
           asset_content_type: application/json
 
 # ─────────────────────────────────────────────────────────────
-# 2B. Upload artefacts for *manual* runs
+# 2B. Artefacts for manual runs
 # ─────────────────────────────────────────────────────────────
   upload-manual-artifact:
     if: github.event_name == 'workflow_dispatch'
@@ -71,11 +68,11 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: Openhands-LIST-MCP_linux_amd64
+          name: Openhands-LIST-MCP
           path: out/
       - uses: actions/download-artifact@v4
         with:
-          name: Openhands-LIST-MCP_linux_amd64.intoto.jsonl
+          name: Openhands-LIST-MCP.intoto.jsonl
           path: out/
 
       - name: Upload combined artefact
@@ -83,3 +80,4 @@ jobs:
         with:
           name: Openhands-LIST-MCP-output
           path: out/
+
