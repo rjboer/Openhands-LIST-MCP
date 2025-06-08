@@ -46,10 +46,74 @@ docker compose up -d
 Then Step 3, couple it to openhands, 
 
 Register it in openhands;
-I use port 3001 in my docker-compose and I use multiple dockers.. by itself the application hosts on port 8080 (modify via docker file and docker-compose file). 
-bridge via host.internal like below. 
+I use port 3002 in my docker-compose and I use multiple dockers.. by itself the application hosts on port 3002 default (modify via docker file).
+The port is modified by the PORT environment variable.  
+bridge via host.internal like below (yes it shows an old port, 3001). 
 
 ![image](https://github.com/user-attachments/assets/ca0121f9-3c5e-4fa4-a42c-9c3951aa906b)
+
+Step 4: Debugging...
+
+Assuming you run two seperate containers (comes in handy and you dont have to reboot the entire stack every time). 
+- First curl from inside your openhands container:
+openhands-list-mcp is the hostname of my service..
+Try this from inside the openhands docker (depending on your port)
+
+```bash
+curl http://openhands-list-mcp:3002
+curl http://openhands-list-mcp:8080
+curl http://openhands-list-mcp:3002/mcp/health
+```
+Failure looks like this:
+```bash
+curl: (6) Could not resolve host: openhands-list-mcp
+```
+Succes on the /mcp/health handle looks like this:
+```bash
+Valid endpoints (all JSON):
+
+GET  /open/{list}              → first open item with its index
+GET  /close/{list}?index=n     → close item (index optional)
+GET  /add/{list}               → create empty list
+POST /add/{list}               → create list, seed JSON array
+GET  /delete/{list}            → delete list
+GET  /list/{list}              → full list JSON
+GET  /timeout/{seconds}        → set throttle delay (0-600 s)
+GET  /meta                     → summary for index page
+/ or /index.html               → web UI
+# 
+```
+
+
+The MCP server will tell you in the logs where it is hosted:
+Like this:
+```bash
+[+] Running 1/1
+ ✔ Container openhands-list-mcp  Created                                                                                                                      0.0s
+Attaching to openhands-list-mcp
+openhands-list-mcp  | 🔗  Listening at http://localhost:3002  – UI on /
+```
+
+
+Alternatively, if openhands give an error because it cannot stream....
+You should check the routing.....
+```bash
+2025-06-08 20:56:30.703 | - openhands:ERROR: utils.py:100 - Failed to connect to url='http://host.docker.internal:3001' api_key='******': 
+2025-06-08 20:56:30.703 | Traceback (most recent call last):
+2025-06-08 20:56:30.703 |   File "/usr/local/lib/python3.12/asyncio/tasks.py", line 520, in wait_for
+2025-06-08 20:56:30.703 |     return await fut
+2025-06-08 20:56:30.703 |            ^^^^^^^^^
+2025-06-08 20:56:30.703 |   File "/app/openhands/mcp/client.py", line 71, in connect_with_timeout
+2025-06-08 20:56:30.703 |     streams = await self.exit_stack.enter_async_context(streams_context)
+2025-06-08 20:56:30.703 |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+```
+
+On linux one might create a specific network (in Windows you can use host.docker.internal, but it might not work in Linux). 
+```bash
+docker network create openhands-net
+```
+
+
 
 
 
