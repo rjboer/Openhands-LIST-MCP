@@ -2,7 +2,7 @@
 FROM golang:1.22 AS builder
 WORKDIR /src
 
-ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
+ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64 PORT=3002
 
 COPY go.mod go.sum ./
 RUN go mod download
