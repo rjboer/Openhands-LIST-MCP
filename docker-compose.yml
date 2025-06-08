@@ -12,7 +12,7 @@ services:
     environment:
       - PORT=8080          # the Go binary honours this var
     ports:
-      - "8080:8080"        # hostPort:containerPort
+      - "3001:8080"           # host:container
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/meta"]
       interval: 30s
