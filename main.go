@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -424,8 +426,21 @@ func (s *Store) handleClose(w http.ResponseWriter, r *http.Request, name string)
 /* --------------------------------------------------------------------- */
 
 func main() {
+	// --port flag (default 3002)
+	portFlag := flag.String("port", "3002", "TCP port to listen on")
+	flag.Parse()
+
+	// Allow PORT environment variable to override the default,
+	// but let an explicit --port flag win if it’s set.
+	port := os.Getenv("PORT")
+	if port == "" || flag.Lookup("port").Value.String() != "3002" {
+		port = *portFlag
+	}
+
+	addr := ":" + port
+
 	store := NewStore()
-	addr := ":3002"
+
 	fmt.Printf("🔗  Listening at http://localhost%s  – UI on /\n", addr)
 	if err := http.ListenAndServe(addr, store); err != nil {
 		log.Fatal(err)
