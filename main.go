@@ -425,7 +425,7 @@ func (s *Store) handleClose(w http.ResponseWriter, r *http.Request, name string)
 
 func main() {
 	store := NewStore()
-	addr := ":8080"
+	addr := ":3002"
 	fmt.Printf("🔗  Listening at http://localhost%s  – UI on /\n", addr)
 	if err := http.ListenAndServe(addr, store); err != nil {
 		log.Fatal(err)

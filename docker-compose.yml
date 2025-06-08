@@ -10,11 +10,11 @@ services:
 
     container_name: openhands-list-mcp
     environment:
-      - PORT=8080          # the Go binary honours this var
+      - PORT=3002          # the Go binary honours this var
     ports:
-      - "3001:8080"           # host:container
+      - "3002:3002"           # host:container
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/meta"]
+      test: ["CMD", "curl", "-f", "http://localhost:3002/meta"]
       interval: 30s
       timeout: 5s
       retries: 3
