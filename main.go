@@ -512,6 +512,21 @@ func (s *Store) handleAdd(w http.ResponseWriter, r *http.Request,
 				items[i].Status = "open"
 			}
 		}
+		exists := map[int]struct{}{}
+		for i := range items {
+			if items[i].Index == 0 {
+				items[i].Index = i + 1
+			}
+			if _, dup := exists[items[i].Index]; dup {
+				http.Error(w, "duplicate index in payload", http.StatusBadRequest)
+				return
+			}
+			exists[items[i].Index] = struct{}{}
+			if items[i].Status == "" {
+				items[i].Status = "open"
+			}
+		}
+
 		s.Lists[listName] = &List{Items: items}
 		writeJSON(w, http.StatusCreated, items)
 		send(hub, map[string]any{"event": "add_list", "name": listName, "items": items})
