@@ -37,10 +37,13 @@ type Store struct {
 	itemDelay time.Duration // throttle between tasks
 }
 
+var startPings sync.Once
+
 func NewStore() *Store { return &Store{Lists: make(map[string]*List)} }
 
 /* --------------------------------------------------------------------- */
 /* 2.  Embedded index.html                                               */
+/*	yeah...i put it here...												 */
 /* --------------------------------------------------------------------- */
 
 const indexHTML = `<!DOCTYPE html>
@@ -177,10 +180,242 @@ GET  /meta                     → summary for index page
 }
 
 /* --------------------------------------------------------------------- */
-/* 4.  HTTP router                                                       */
+/* 4.  HTTP router  s                                                     */
 /* --------------------------------------------------------------------- */
+//
+//func (s *Store) route(events *sseHub) http.Handler {
+//	mux := http.NewServeMux()
+//
+//	/* ---- MCP endpoints ------------------------------------------ */
+//
+//	// 3.1  Hand-shake: POST /mcp  ➜ 202 Accepted
+//	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+//		if r.Method != http.MethodPost {
+//			http.Error(w, "POST required", http.StatusMethodNotAllowed)
+//			return
+//		}
+//
+//		// Example manifest – list the three tools you expose.
+//		manifest := map[string]any{
+//			"tools": []map[string]string{
+//				{"name": "open_item", "description": "Return first open item"},
+//				{"name": "close_item", "description": "Close an item"},
+//				{"name": "list_items", "description": "Return full list"},
+//			},
+//		}
+//		// Immediately stream the manifest on /mcp/sse so the agent sees it.
+//		b, _ := json.Marshal(manifest)
+//		events.broadcast("data: " + string(b) + "\n\n")
+//
+//		w.WriteHeader(http.StatusAccepted) // 202
+//		w.Write([]byte(`{"status":"ok"}`))
+//	})
+//
+//	// 3.2  SSE stream: GET /mcp/sse  (text/event-stream)
+//	mux.HandleFunc("/mcp/sse", func(w http.ResponseWriter, r *http.Request) {
+//		// Mandatory headers
+//		w.Header().Set("Content-Type", "text/event-stream")
+//		w.Header().Set("Cache-Control", "no-cache")
+//		w.Header().Set("Connection", "keep-alive")
+//
+//		// Flush capability check
+//		flusher, ok := w.(http.Flusher)
+//		if !ok {
+//			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+//			return
+//		}
+//		// Register client
+//		ch := make(chan string, 8)
+//		events.add(ch)
+//		defer events.remove(ch)
+//
+//		// Initial ping so OpenHands marks the stream as up.
+//		fmt.Fprint(w, ":\n\n")
+//		flusher.Flush()
+//
+//		notify := w.(http.CloseNotifier).CloseNotify()
+//		for {
+//			select {
+//			case <-notify:
+//				return // client closed
+//			case msg := <-ch:
+//				fmt.Fprint(w, msg)
+//				flusher.Flush()
+//			}
+//		}
+//	})
+//
+//	/* ---- Everything else: keep your old dynamic router --------- */
+//	mux.Handle("/", s) // your existing ServeHTTP implements the REST/UI
+//
+//	return mux
+//}
+//
+//
+//
+//
+//func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+//	path := strings.Trim(r.URL.Path, "/")
+//
+//	// 4.1  UI
+//	if path == "" || path == "index.html" {
+//		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+//		_, _ = w.Write([]byte(indexHTML))
+//		return
+//	}
+//
+//	// 4.2  helpers
+//	switch {
+//	case path == "meta":
+//		s.handleMeta(w)
+//		return
+//	case strings.HasPrefix(path, "timeout/"):
+//		s.handleTimeout(w, strings.TrimPrefix(path, "timeout/"))
+//		return
+//	}
+//
+//	// 4.3  two-segment REST
+//	parts := strings.SplitN(path, "/", 2)
+//	if len(parts) != 2 {
+//		writeUsage(w)
+//		return
+//	}
+//	action, list := parts[0], parts[1]
+//
+//	switch action {
+//	case "add":
+//		s.handleAdd(w, r, list)
+//	case "delete":
+//		s.handleDelete(w, r, list)
+//	case "list":
+//		s.handleList(w, r, list)
+//	case "open":
+//		s.handleOpen(w, r, list)
+//	case "close":
+//		s.handleClose(w, r, list)
+//	default:
+//		writeUsage(w)
+//	}
+//}
 
-func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// route returns a fully-wired *http.ServeMux*.
+// Pass the shared hub so handlers can stream events.
+func (s *Store) route(hub *sseHub) *http.ServeMux {
+	mux := http.NewServeMux()
+
+	/*──────────────── MCP endpoints ───────────────*/
+
+	// 3.1  POST /mcp  — handshake
+	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST required", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Tell OpenHands which tools exist
+		manifest := map[string]any{
+			"tools": []map[string]string{
+				{"name": "open_item", "description": "Return first open item"},
+				{"name": "close_item", "description": "Close an item"},
+				{"name": "list_items", "description": "Return full list"},
+			},
+		}
+		b, _ := json.Marshal(manifest)
+		hub.broadcast("data: " + string(b) + "\n\n")
+
+		// Start 25-second keep-alive pings *only once*
+		sendCommentPing(hub, 25*time.Second)
+
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	// 3.2  GET /mcp/sse  — event stream
+	mux.HandleFunc("/mcp/sse", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "stream unsupported", 500)
+			return
+		}
+
+		ch := make(chan string, 8)
+		hub.add(ch)
+		defer hub.remove(ch)
+
+		// Let client know we’re alive
+		fmt.Fprint(w, ":\n\n")
+		flusher.Flush()
+
+		closeNotify := r.Context().Done()
+		for {
+			select {
+			case <-closeNotify:
+				return
+			case msg := <-ch:
+				fmt.Fprint(w, msg)
+				flusher.Flush()
+			}
+		}
+	})
+
+	/*───────────── Existing REST / UI handlers ─────────────*/
+	mux.HandleFunc("/open/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/open/")
+		s.handleOpen(w, r, name, hub) // pass hub for broadcast
+	})
+	mux.HandleFunc("/close/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/close/")
+		s.handleClose(w, r, name, hub) // pass hub for broadcast
+	})
+	mux.HandleFunc("/add/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/add/")
+		s.handleAdd(w, r, name, hub)
+	})
+	mux.HandleFunc("/delete/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/delete/")
+		s.handleDelete(w, r, name, hub)
+	})
+	mux.HandleFunc("/list/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/list/")
+		s.handleList(w, r, name, hub)
+	})
+	mux.HandleFunc("/timeout/", func(w http.ResponseWriter, r *http.Request) {
+		secs := strings.TrimPrefix(r.URL.Path, "/timeout/")
+		s.handleTimeout(w, secs)
+	})
+	mux.HandleFunc("/meta", s.handleMeta)
+	mux.HandleFunc("/", s.handleIndex)
+
+	return mux
+}
+
+/*───────────────────────────────────────────────────────────────*/
+/*  Functions for HTTP handlers                                  */
+/*───────────────────────────────────────────────────────────────*/
+
+// writeJSON writes v as application/json and ignores secondary errors.
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// send broadcasts v as an SSE data frame if hub != nil.
+func send(hub *sseHub, v any) {
+	if hub == nil {
+		return
+	}
+	if b, err := json.Marshal(v); err == nil {
+		hub.broadcast("data: " + string(b) + "\n\n")
+	}
+}
+
+/* -------------------- /index  (handle the index) ----------------------- */
+func (s *Store) handleIndex(w http.ResponseWriter, r *http.Request) {
 	path := strings.Trim(r.URL.Path, "/")
 
 	// 4.1  UI
@@ -189,44 +424,11 @@ func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(indexHTML))
 		return
 	}
-
-	// 4.2  helpers
-	switch {
-	case path == "meta":
-		s.handleMeta(w)
-		return
-	case strings.HasPrefix(path, "timeout/"):
-		s.handleTimeout(w, strings.TrimPrefix(path, "timeout/"))
-		return
-	}
-
-	// 4.3  two-segment REST
-	parts := strings.SplitN(path, "/", 2)
-	if len(parts) != 2 {
-		writeUsage(w)
-		return
-	}
-	action, list := parts[0], parts[1]
-
-	switch action {
-	case "add":
-		s.handleAdd(w, r, list)
-	case "delete":
-		s.handleDelete(w, r, list)
-	case "list":
-		s.handleList(w, r, list)
-	case "open":
-		s.handleOpen(w, r, list)
-	case "close":
-		s.handleClose(w, r, list)
-	default:
-		writeUsage(w)
-	}
 }
 
 /* -------------------- /meta  (summary + delay) ----------------------- */
 
-func (s *Store) handleMeta(w http.ResponseWriter) {
+func (s *Store) handleMeta(w http.ResponseWriter, r *http.Request) {
 	type entry struct {
 		Name  string `json:"name"`
 		Count int    `json:"count"`
@@ -273,86 +475,100 @@ func (s *Store) handleTimeout(w http.ResponseWriter, secStr string) {
 }
 
 /* -------------------------- /add/{list} ------------------------------ */
+func (s *Store) handleAdd(w http.ResponseWriter, r *http.Request,
+	listName string, hub *sseHub) {
 
-func (s *Store) handleAdd(w http.ResponseWriter, r *http.Request, name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	switch r.Method {
-	case http.MethodGet:
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if _, exists := s.Lists[name]; exists {
-			http.Error(w, "list already exists", http.StatusConflict)
+	case http.MethodGet: // create empty list
+		if _, exists := s.Lists[listName]; exists {
+			http.Error(w, "list exists", http.StatusConflict)
 			return
 		}
-		s.Lists[name] = &List{Name: name}
-		w.WriteHeader(http.StatusCreated)
-		fmt.Fprintf(w, `{"message":"list %q created"}`, name)
+		s.Lists[listName] = &List{} // empty
+		writeJSON(w, http.StatusCreated, map[string]string{
+			"name": listName, "status": "created",
+		})
+		send(hub, map[string]string{"event": "add_list", "name": listName})
 
-	case http.MethodPost:
+	case http.MethodPost: // seed with JSON array
+		if _, exists := s.Lists[listName]; exists {
+			http.Error(w, "list exists", http.StatusConflict)
+			return
+		}
 		var items []Item
 		if err := json.NewDecoder(r.Body).Decode(&items); err != nil {
-			http.Error(w, "invalid JSON body", http.StatusBadRequest)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-
-		s.mu.Lock()
-		if _, exists := s.Lists[name]; !exists {
-			s.Lists[name] = &List{Name: name}
-		}
-		base := len(s.Lists[name].Items)
+		// assign indices + default status
 		for i := range items {
-			items[i].Index = base + i + 1
+			if items[i].Index == 0 {
+				items[i].Index = i + 1
+			}
 			if items[i].Status == "" {
 				items[i].Status = "open"
 			}
-			s.Lists[name].Items = append(s.Lists[name].Items, items[i])
 		}
-		s.mu.Unlock()
-
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(items)
+		s.Lists[listName] = &List{Items: items}
+		writeJSON(w, http.StatusCreated, items)
+		send(hub, map[string]any{"event": "add_list", "name": listName, "items": items})
 
 	default:
-		writeUsage(w)
+		http.Error(w, "GET or POST only", http.StatusMethodNotAllowed)
 	}
 }
 
 /* ------------------------ /delete/{list} ----------------------------- */
 
-func (s *Store) handleDelete(w http.ResponseWriter, r *http.Request, name string) {
+func (s *Store) handleDelete(w http.ResponseWriter, r *http.Request,
+	listName string, hub *sseHub) {
+
 	if r.Method != http.MethodGet {
-		writeUsage(w)
+		http.Error(w, "GET required", http.StatusMethodNotAllowed)
 		return
 	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.Lists[name]; !ok {
+
+	if _, ok := s.Lists[listName]; !ok {
 		http.Error(w, "list not found", http.StatusNotFound)
 		return
 	}
-	delete(s.Lists, name)
-	fmt.Fprintf(w, `{"message":"list %q deleted"}`, name)
+	delete(s.Lists, listName)
+	resp := map[string]any{"name": listName, "deleted": true}
+	writeJSON(w, http.StatusOK, resp)
+	send(hub, resp) // ← broadcast
 }
 
 /* -------------------------- /list/{list} ----------------------------- */
 
-func (s *Store) handleList(w http.ResponseWriter, r *http.Request, name string) {
+func (s *Store) handleList(w http.ResponseWriter, r *http.Request,
+	listName string, hub *sseHub) {
+
 	if r.Method != http.MethodGet {
-		writeUsage(w)
+		http.Error(w, "GET required", http.StatusMethodNotAllowed)
 		return
 	}
+
 	s.mu.RLock()
-	list, ok := s.Lists[name]
-	s.mu.RUnlock()
+	defer s.mu.RUnlock()
+
+	list, ok := s.Lists[listName]
 	if !ok {
 		http.Error(w, "list not found", http.StatusNotFound)
 		return
 	}
-	json.NewEncoder(w).Encode(list.Items)
+	writeJSON(w, http.StatusOK, list.Items)
+	send(hub, list.Items) // ← broadcast
 }
 
 /* -------------------------- /open/{list} ----------------------------- */
 
-func (s *Store) handleOpen(w http.ResponseWriter, r *http.Request, name string) {
+func (s *Store) handleOpen(w http.ResponseWriter, r *http.Request, name string, hub *sseHub) {
 	if r.Method != http.MethodGet {
 		writeUsage(w)
 		return
@@ -371,6 +587,9 @@ func (s *Store) handleOpen(w http.ResponseWriter, r *http.Request, name string) 
 	for _, it := range list.Items {
 		if it.Status == "open" {
 			json.NewEncoder(w).Encode(it)
+			// Stream the observation back to OpenHands using SSE:
+			b, _ := json.Marshal(it)
+			hub.broadcast("data: " + string(b) + "\n\n")
 			return
 		}
 	}
@@ -379,46 +598,100 @@ func (s *Store) handleOpen(w http.ResponseWriter, r *http.Request, name string) 
 
 /* -------------------------- /close/{list} ---------------------------- */
 
-func (s *Store) handleClose(w http.ResponseWriter, r *http.Request, name string) {
+func (s *Store) handleClose(w http.ResponseWriter, r *http.Request,
+	listName string, hub *sseHub) {
+
 	if r.Method != http.MethodGet {
-		writeUsage(w)
+		http.Error(w, "GET required", http.StatusMethodNotAllowed)
 		return
 	}
-	s.delayMu.RLock()
-	time.Sleep(s.itemDelay)
-	s.delayMu.RUnlock()
-
-	q := r.URL.Query().Get("index")
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	list, ok := s.Lists[name]
+
+	list, ok := s.Lists[listName]
 	if !ok {
 		http.Error(w, "list not found", http.StatusNotFound)
 		return
 	}
 
-	reply := func(it *Item) { json.NewEncoder(w).Encode(it) }
-
-	if q != "" { // explicit index
-		idx, err := strconv.Atoi(q)
-		if err != nil || idx <= 0 || idx > len(list.Items) {
-			http.Error(w, "invalid index", http.StatusBadRequest)
+	// optional ?index=n query
+	if idxStr := r.URL.Query().Get("index"); idxStr != "" {
+		idx, err := strconv.Atoi(idxStr)
+		if err != nil || idx < 1 || idx > len(list.Items) {
+			http.Error(w, "bad index", http.StatusBadRequest)
 			return
 		}
 		list.Items[idx-1].Status = "closed"
-		reply(&list.Items[idx-1])
+		writeJSON(w, http.StatusOK, list.Items[idx-1])
+		send(hub, list.Items[idx-1]) // ← broadcast
 		return
 	}
 
+	// otherwise close first open item
 	for i := range list.Items {
 		if list.Items[i].Status == "open" {
 			list.Items[i].Status = "closed"
-			reply(&list.Items[i])
+			writeJSON(w, http.StatusOK, list.Items[i])
+			send(hub, list.Items[i]) // ← broadcast
 			return
 		}
 	}
-	http.Error(w, "no open item to close", http.StatusNotFound)
+	http.Error(w, "no open item", http.StatusNotFound)
+}
+
+/* ------------------------------------------------------------------ */
+/* 0-bis.  SSE hub (thread-safe)                           */
+/* ------------------------------------------------------------------ */
+
+type sseHub struct {
+	mu      sync.RWMutex
+	clients map[chan string]struct{}
+}
+
+func newHub() *sseHub { return &sseHub{clients: make(map[chan string]struct{})} }
+
+func (h *sseHub) add(ch chan string) {
+	h.mu.Lock()
+	h.clients[ch] = struct{}{}
+	h.mu.Unlock()
+}
+
+func (h *sseHub) remove(ch chan string) {
+	h.mu.Lock()
+	delete(h.clients, ch)
+	close(ch)
+	h.mu.Unlock()
+}
+
+func (h *sseHub) broadcast(msg string) {
+	h.mu.RLock()
+	for ch := range h.clients {
+		select {
+		case ch <- msg:
+		default: /* slow client, drop */
+		}
+	}
+	h.mu.RUnlock()
+}
+
+// sendCommentPing starts a goroutine that broadcasts an SSE “comment” (":\n")
+// this functionas as a keep alive.  Call it **once**!!!!! after the first handshake.
+func sendCommentPing(hub *sseHub, interval time.Duration) {
+	startPings.Do(func() { // ← only once
+		go func() {
+			t := time.NewTicker(interval)
+			for range t.C {
+				hub.mu.RLock()
+				empty := len(hub.clients) == 0 // auto-pause when nobody is listening
+				hub.mu.RUnlock()
+				if empty {
+					continue
+				}
+				hub.broadcast(":\n\n")
+			}
+		}()
+	})
 }
 
 /* --------------------------------------------------------------------- */
@@ -439,10 +712,11 @@ func main() {
 
 	addr := ":" + port
 
-	store := NewStore()
+	store := NewStore() // for the mcp
+	events := newHub()  //for the sse
 
 	fmt.Printf("🔗  Listening at http://localhost%s  – UI on /\n", addr)
-	if err := http.ListenAndServe(addr, store); err != nil {
+	if err := http.ListenAndServe(addr, store.route(events)); err != nil {
 		log.Fatal(err)
 	}
 }
