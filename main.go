@@ -87,6 +87,10 @@ form{margin-top:1rem}
 <tbody></tbody></table>
 
 <h2>Throttle Open / Close</h2>
+<div>
+<p> The main function of the throttle is to slow down the AI tool</p>
+<p> This way you can use gemini without running immediately into limits</p>
+</div>
 <form id="delayForm">
 <label>Delay&nbsp;(seconds):
   <input id="delaySeconds" type="number" min="0" max="600" value="0" required>
@@ -504,14 +508,6 @@ func (s *Store) handleAdd(w http.ResponseWriter, r *http.Request,
 			return
 		}
 		// assign indices + default status
-		for i := range items {
-			if items[i].Index == 0 {
-				items[i].Index = i + 1
-			}
-			if items[i].Status == "" {
-				items[i].Status = "open"
-			}
-		}
 		exists := map[int]struct{}{}
 		for i := range items {
 			if items[i].Index == 0 {
