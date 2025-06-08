@@ -33,4 +33,26 @@ cd review-board
 go run .
 
 ```
+
+## How to use
+Clone the git repository
+
+```bash
+#Step 1 (dont forget the .)
+docker build -t openhands-list-mcp:dev .
+#Step 2, (launch it as a deamon -d or without)
+docker compose up -d
+```
+Then Step 3, couple it to openhands, 
+
+Register it in openhands;
+I use port 3001 in my docker-compose and I use multiple dockers.. by itself the application hosts on port 8080 (modify via docker file and docker-compose file). 
+bridge via host.internal like below. 
+
+![image](https://github.com/user-attachments/assets/ca0121f9-3c5e-4fa4-a42c-9c3951aa906b)
+
+
+
+## Impression on port 8080 or 3001
 ![image](https://github.com/user-attachments/assets/aef7325d-34a5-4aa1-a5ba-84b8a7948a50)
+
