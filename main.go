@@ -335,7 +335,7 @@ func (s *Store) route(hub *sseHub) *http.ServeMux {
 	})
 
 	// 3.2  GET /mcp/sse  — event stream
-	mux.HandleFunc("/mcp/sse", func(w http.ResponseWriter, r *http.Request) {
+	sseHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -350,21 +350,22 @@ func (s *Store) route(hub *sseHub) *http.ServeMux {
 		hub.add(ch)
 		defer hub.remove(ch)
 
-		// Let client know we’re alive
-		fmt.Fprint(w, ":\n\n")
+		fmt.Fprint(w, ":\n\n") // initial ping
 		flusher.Flush()
 
-		closeNotify := r.Context().Done()
 		for {
 			select {
-			case <-closeNotify:
+			case <-r.Context().Done():
 				return
 			case msg := <-ch:
 				fmt.Fprint(w, msg)
 				flusher.Flush()
 			}
 		}
-	})
+	}
+
+	mux.HandleFunc("/mcp/sse", sseHandler)  // SSE handler...
+	mux.HandleFunc("/mcp/sse/", sseHandler) // handles the trailing slash sometimes produced by openhands....
 
 	/*───────────── Existing REST / UI handlers ─────────────*/
 	mux.HandleFunc("/open/", func(w http.ResponseWriter, r *http.Request) {
