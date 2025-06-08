@@ -699,23 +699,23 @@ func sendCommentPing(hub *sseHub, interval time.Duration) {
 /* --------------------------------------------------------------------- */
 
 func main() {
-	// --port flag (default 3002)
-	portFlag := flag.String("port", "3002", "TCP port to listen on")
+	defPort := "3002" // compile-time default
+	flagPort := flag.String("port", defPort, "TCP port to listen on")
 	flag.Parse()
 
-	// Allow PORT environment variable to override the default,
-	// but let an explicit --port flag win if it’s set.
 	port := os.Getenv("PORT")
-	if port == "" || flag.Lookup("port").Value.String() != "3002" {
-		port = *portFlag
+	if *flagPort != defPort { // user passed --port
+		port = *flagPort
+	}
+	if port == "" { // neither flag nor env
+		port = defPort
 	}
 
 	addr := ":" + port
+	store := NewStore()
+	events := newHub()
 
-	store := NewStore() // for the mcp
-	events := newHub()  //for the sse
-
-	fmt.Printf("🔗  Listening at http://localhost%s  – UI on /\n", addr)
+	log.Printf("🔗  Listening on %s", addr)
 	if err := http.ListenAndServe(addr, store.route(events)); err != nil {
 		log.Fatal(err)
 	}
