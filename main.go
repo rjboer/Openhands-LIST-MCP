@@ -186,121 +186,6 @@ GET  /meta                     → summary for index page
 /* --------------------------------------------------------------------- */
 /* 4.  HTTP router  s                                                     */
 /* --------------------------------------------------------------------- */
-//
-//func (s *Store) route(events *sseHub) http.Handler {
-//	mux := http.NewServeMux()
-//
-//	/* ---- MCP endpoints ------------------------------------------ */
-//
-//	// 3.1  Hand-shake: POST /mcp  ➜ 202 Accepted
-//	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
-//		if r.Method != http.MethodPost {
-//			http.Error(w, "POST required", http.StatusMethodNotAllowed)
-//			return
-//		}
-//
-//		// Example manifest – list the three tools you expose.
-//		manifest := map[string]any{
-//			"tools": []map[string]string{
-//				{"name": "open_item", "description": "Return first open item"},
-//				{"name": "close_item", "description": "Close an item"},
-//				{"name": "list_items", "description": "Return full list"},
-//			},
-//		}
-//		// Immediately stream the manifest on /mcp/sse so the agent sees it.
-//		b, _ := json.Marshal(manifest)
-//		events.broadcast("data: " + string(b) + "\n\n")
-//
-//		w.WriteHeader(http.StatusAccepted) // 202
-//		w.Write([]byte(`{"status":"ok"}`))
-//	})
-//
-//	// 3.2  SSE stream: GET /mcp/sse  (text/event-stream)
-//	mux.HandleFunc("/mcp/sse", func(w http.ResponseWriter, r *http.Request) {
-//		// Mandatory headers
-//		w.Header().Set("Content-Type", "text/event-stream")
-//		w.Header().Set("Cache-Control", "no-cache")
-//		w.Header().Set("Connection", "keep-alive")
-//
-//		// Flush capability check
-//		flusher, ok := w.(http.Flusher)
-//		if !ok {
-//			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-//			return
-//		}
-//		// Register client
-//		ch := make(chan string, 8)
-//		events.add(ch)
-//		defer events.remove(ch)
-//
-//		// Initial ping so OpenHands marks the stream as up.
-//		fmt.Fprint(w, ":\n\n")
-//		flusher.Flush()
-//
-//		notify := w.(http.CloseNotifier).CloseNotify()
-//		for {
-//			select {
-//			case <-notify:
-//				return // client closed
-//			case msg := <-ch:
-//				fmt.Fprint(w, msg)
-//				flusher.Flush()
-//			}
-//		}
-//	})
-//
-//	/* ---- Everything else: keep your old dynamic router --------- */
-//	mux.Handle("/", s) // your existing ServeHTTP implements the REST/UI
-//
-//	return mux
-//}
-//
-//
-//
-//
-//func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-//	path := strings.Trim(r.URL.Path, "/")
-//
-//	// 4.1  UI
-//	if path == "" || path == "index.html" {
-//		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-//		_, _ = w.Write([]byte(indexHTML))
-//		return
-//	}
-//
-//	// 4.2  helpers
-//	switch {
-//	case path == "meta":
-//		s.handleMeta(w)
-//		return
-//	case strings.HasPrefix(path, "timeout/"):
-//		s.handleTimeout(w, strings.TrimPrefix(path, "timeout/"))
-//		return
-//	}
-//
-//	// 4.3  two-segment REST
-//	parts := strings.SplitN(path, "/", 2)
-//	if len(parts) != 2 {
-//		writeUsage(w)
-//		return
-//	}
-//	action, list := parts[0], parts[1]
-//
-//	switch action {
-//	case "add":
-//		s.handleAdd(w, r, list)
-//	case "delete":
-//		s.handleDelete(w, r, list)
-//	case "list":
-//		s.handleList(w, r, list)
-//	case "open":
-//		s.handleOpen(w, r, list)
-//	case "close":
-//		s.handleClose(w, r, list)
-//	default:
-//		writeUsage(w)
-//	}
-//}
 
 // route returns a fully-wired *http.ServeMux*.
 // Pass the shared hub so handlers can stream events.
@@ -328,7 +213,7 @@ func (s *Store) route(hub *sseHub) *http.ServeMux {
 		hub.broadcast("data: " + string(b) + "\n\n")
 
 		// Start 25-second keep-alive pings *only once*
-		sendCommentPing(hub, 25*time.Second)
+		sendCommentPing(hub, 10*time.Second)
 
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -345,7 +230,7 @@ func (s *Store) route(hub *sseHub) *http.ServeMux {
 			http.Error(w, "stream unsupported", 500)
 			return
 		}
-
+		//register client
 		ch := make(chan string, 8)
 		hub.add(ch)
 		defer hub.remove(ch)
@@ -690,17 +575,27 @@ func (h *sseHub) broadcast(msg string) {
 // sendCommentPing starts a goroutine that broadcasts an SSE “comment” (":\n")
 // this functionas as a keep alive.  Call it **once**!!!!! after the first handshake.
 func sendCommentPing(hub *sseHub, interval time.Duration) {
-	startPings.Do(func() { // ← only once
+	startPings.Do(func() {
 		go func() {
-			t := time.NewTicker(interval)
-			for range t.C {
+			sendPing := func(tag string) {
 				hub.mu.RLock()
-				empty := len(hub.clients) == 0 // auto-pause when nobody is listening
+				empty := len(hub.clients) == 0
 				hub.mu.RUnlock()
 				if empty {
-					continue
+					return
 				}
 				hub.broadcast(":\n\n")
+				if debug {
+					log.Printf("[DEBUG] %s SSE keep-alive ping sent at %v\n", tag, time.Now())
+				}
+			}
+
+			// Send initial ping, This keeps openhands happy:P
+			sendPing("Initial")
+
+			t := time.NewTicker(interval)
+			for range t.C {
+				sendPing("Periodic")
 			}
 		}()
 	})
