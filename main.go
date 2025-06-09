@@ -38,7 +38,7 @@ type Store struct {
 }
 
 var startPings sync.Once
-
+var debug bool         //debug flag
 func NewStore() *Store { return &Store{Lists: make(map[string]*List)} }
 
 /* --------------------------------------------------------------------- */
@@ -706,6 +706,17 @@ func sendCommentPing(hub *sseHub, interval time.Duration) {
 	})
 }
 
+// loggingMiddleware loggs all connection request comming in.
+// handy to review all openhands communication
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if debug {
+			log.Printf("[TRACE] %s %s", r.Method, r.URL.Path)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 /* --------------------------------------------------------------------- */
 /* 5.  main                                                              */
 /* --------------------------------------------------------------------- */
@@ -713,6 +724,7 @@ func sendCommentPing(hub *sseHub, interval time.Duration) {
 func main() {
 	defPort := "3002" // compile-time default
 	flagPort := flag.String("port", defPort, "TCP port to listen on")
+	flag.BoolVar(&debug, "debug", true, "enable debug logging output")
 	flag.Parse()
 
 	port := os.Getenv("PORT")
@@ -728,7 +740,7 @@ func main() {
 	events := newHub()
 
 	log.Printf("🔗  Listening on %s", addr)
-	if err := http.ListenAndServe(addr, store.route(events)); err != nil {
+	if err := http.ListenAndServe(addr, loggingMiddleware(store.route(events))); err != nil {
 		log.Fatal(err)
 	}
 }
