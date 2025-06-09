@@ -722,10 +722,13 @@ func loggingMiddleware(next http.Handler) http.Handler {
 /* --------------------------------------------------------------------- */
 
 func main() {
+	debug = true
+	fmt.Println("Starting Roelof Jan Boer's list MCP tool")
 	defPort := "3002" // compile-time default
 	flagPort := flag.String("port", defPort, "TCP port to listen on")
 	flag.BoolVar(&debug, "debug", true, "enable debug logging output")
 	flag.Parse()
+	fmt.Println("Logging is: ", debug)
 
 	port := os.Getenv("PORT")
 	if *flagPort != defPort { // user passed --port
