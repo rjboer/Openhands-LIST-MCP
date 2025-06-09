@@ -711,7 +711,13 @@ func sendCommentPing(hub *sseHub, interval time.Duration) {
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if debug {
-			log.Printf("[TRACE] %s %s", r.Method, r.URL.Path)
+			log.Printf("[TRACE] %s %s", r.Method, r.URL.String())
+			log.Printf(" ↳ RemoteAddr: %s", r.RemoteAddr)
+			log.Printf(" ↳ Host: %s", r.Host)
+			log.Printf(" ↳ User-Agent: %s", r.UserAgent())
+			log.Printf(" ↳ Accept: %s", r.Header.Get("Accept"))
+			log.Printf(" ↳ Content-Type: %s", r.Header.Get("Content-Type"))
+			log.Printf(" ↳ X-Forwarded-For: %s", r.Header.Get("X-Forwarded-For"))
 		}
 		next.ServeHTTP(w, r)
 	})
