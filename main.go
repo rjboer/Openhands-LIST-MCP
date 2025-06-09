@@ -574,6 +574,7 @@ func (h *sseHub) broadcast(msg string) {
 
 // sendCommentPing starts a goroutine that broadcasts an SSE “comment” (":\n")
 // this functionas as a keep alive.  Call it **once**!!!!! after the first handshake.
+// Send initial ping, This keeps openhands happy:P
 func sendCommentPing(hub *sseHub, interval time.Duration) {
 	startPings.Do(func() {
 		go func() {
@@ -590,9 +591,10 @@ func sendCommentPing(hub *sseHub, interval time.Duration) {
 				}
 			}
 
-			// Send initial ping, This keeps openhands happy:P
+			// Send initial ping immediately
 			sendPing("Initial")
 
+			// Then start periodic pinging
 			t := time.NewTicker(interval)
 			for range t.C {
 				sendPing("Periodic")
