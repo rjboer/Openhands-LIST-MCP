@@ -27,7 +27,7 @@ form{margin-top:1rem}
 <h1>OpenHands MCP List Tool</h1>
 
 <!-- Route cheat-sheet -->
-<table class="routes">
+<a href="/test">Test List Functions</a><br><br><table class="routes">
 <thead><tr><th>Verb & Path</th><th>Description</th></tr></thead>
 <tbody>
 <tr><td><code>GET /open/{list}</code></td>   <td>Return first open item with its index</td></tr>
