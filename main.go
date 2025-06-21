@@ -10,8 +10,8 @@ import (
 	"os"
 	"time"
 
-	"./cors"
-	"./sse"
+	"rjboer/Openhands-LIST-MCP/cors"
+	"rjboer/Openhands-LIST-MCP/sse"
 )
 
 var debug bool //debug flag
