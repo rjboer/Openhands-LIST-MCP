@@ -7,7 +7,7 @@ import (
 )
 
 // newCORSHandler wraps an http.Handler and responds to CORS requests.
-func newCORSHandler(h http.Handler, origin string) http.Handler {
+func NewCORSHandler(h http.Handler, origin string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		if r.Method == http.MethodOptions {

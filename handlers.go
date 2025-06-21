@@ -196,7 +196,7 @@ func (s *Store) handleOpen(w http.ResponseWriter, r *http.Request, name string, 
 			json.NewEncoder(w).Encode(it)
 			// Stream the observation back to OpenHands using SSE:
 			b, _ := json.Marshal(it)
-			hub.broadcast("data: " + string(b) + "\n\n")
+			hub.broadcast <- "data: " + string(b) + "\\n\\n"
 			return
 		}
 	}
