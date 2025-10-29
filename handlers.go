@@ -1,4 +1,3 @@
-
 package main
 
 import (
@@ -246,4 +245,3 @@ func (s *Store) handleClose(w http.ResponseWriter, r *http.Request,
 	}
 	http.Error(w, "no open item", http.StatusNotFound)
 }
-
