@@ -1,5 +1,3 @@
-
-
 package main
 
 import (
@@ -9,9 +7,6 @@ import (
 	"net/http"
 	"os"
 	"time"
-
-	"./cors"
-	"./sse"
 )
 
 var debug bool //debug flag
@@ -30,7 +25,7 @@ func main() {
 	fmt.Println("starting server at", *addr)
 
 	// 0-bis.  SSE hub (thread-safe)
-	hub := sse.newHub()
+	hub := newHub()
 	go hub.run()
 
 	// 1.  Data store
@@ -40,7 +35,7 @@ func main() {
 	mux := s.route(hub)
 
 	// CORS
-	corsMux := cors.newCORSHandler(mux, *origin)
+	corsMux := newCORSHandler(mux, *origin)
 
 	// 4.  Static assets
 	fs := http.FileServer(http.Dir(*assetsDir))
@@ -60,4 +55,3 @@ func main() {
 		log.Fatal(err)
 	}
 }
-

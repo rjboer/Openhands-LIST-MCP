@@ -1,4 +1,3 @@
-
 package main
 
 import (
@@ -8,18 +7,18 @@ import (
 
 // sseHub manages SSE clients and broadcasts messages.
 type sseHub struct {
-	clients   map[chan string]bool
-	addClient chan chan string
-	rmClient  chan chan string
-	broadcast chan string
+	clients     map[chan string]bool
+	addClient   chan chan string
+	rmClient    chan chan string
+	broadcastCh chan string
 }
 
 func newHub() *sseHub {
 	return &sseHub{
-		clients:   make(map[chan string]bool),
-		addClient: make(chan chan string),
-		rmClient:  make(chan chan string),
-		broadcast: make(chan string),
+		clients:     make(map[chan string]bool),
+		addClient:   make(chan chan string),
+		rmClient:    make(chan chan string),
+		broadcastCh: make(chan string),
 	}
 }
 
@@ -38,12 +37,19 @@ func (h *sseHub) run() {
 			h.clients[ch] = true
 		case ch := <-h.rmClient:
 			delete(h.clients, ch)
-		case msg := <-h.broadcast:
+		case msg := <-h.broadcastCh:
 			for ch := range h.clients {
 				ch <- msg
 			}
 		}
 	}
+}
+
+func (h *sseHub) broadcast(msg string) {
+	if h == nil {
+		return
+	}
+	h.broadcastCh <- msg
 }
 
 // sendCommentPing sends a keep-alive comment to the SSE stream every interval.
